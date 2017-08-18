@@ -1,0 +1,22 @@
+{
+  "name": "freedns",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Chenyao2333/freedns.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Chenyao2333/freedns/issues"
+  },
+  "homepage": "https://github.com/Chenyao2333/freedns#readme",
+  "dependencies": {
+    "native-dns": "^0.7.0"
+  }
+}
