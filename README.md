@@ -4,7 +4,7 @@ A high-efficient-cache and anti-spoofing DNS Server.
 
 The upstream base on the Google's DNS-Over-HTTPS.
 
-# Setup Up
+# Setup
 
 ## Server
 
