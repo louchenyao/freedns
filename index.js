@@ -11,6 +11,7 @@ let web = express();
 const MIN_TTL = 600;
 const DUMP_PERIOD = 60; // seconds
 const LAZY_UPDATE_PERIOD = 0.1; // seconds
+const EDNS_IP = "59.66.0.0/16"
 
 
 // consts
@@ -129,7 +130,7 @@ let quest_cache = function(que, callback) {
 
 let quest_google = function(que, callback) {
     in_quest_google += 1;
-    let p = "https://dns.google.com/resolve?name=" + que["name"] + "&type=" + que["type"] + "&edns_client_subnet=59.66.130.20";
+    let p = "https://dns.google.com/resolve?name=" + que["name"] + "&type=" + que["type"] + "&edns_client_subnet=" + EDNS_IP;
     request(p, (err, res, body) => {
         in_quest_google -= 1;
         if (err) {
@@ -269,6 +270,7 @@ function process_cache_queue() {
 
 
 setInterval(dump_cache, DUMP_PERIOD * 1000);
+setInterval(dump_status, DUMP_PERIOD * 1000);
 setInterval(process_cache_queue, LAZY_UPDATE_PERIOD * 1000);
 
 process.on('SIGINT', function() {
