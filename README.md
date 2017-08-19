@@ -1,6 +1,6 @@
 # free-dns
 
-A cache friendly, anti-spoofing DNS Server.
+A high-efficient-cache and anti-spoofing DNS Server.
 
 The upstream base on the Google's DNS-Over-HTTPS.
 
