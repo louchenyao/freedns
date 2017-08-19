@@ -59,7 +59,7 @@ let quest_google = function(que, callback) {
     // console.log("requst_url: " + p);
     request(p, (err, res, body) => {
         if (err) {
-            consoel.log(err);
+            console.log(err);
             // todo: try to record err...
             callback([], []);
             return;
