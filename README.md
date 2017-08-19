@@ -17,7 +17,7 @@ sudo node index.js
 
 You can set the `EDNS_IP` in index.js to your subnet, to utilize EDNS optimize upstream results.
 
-And you can open [http://localhost:5353/](http://localhost:5353/) in brower to check internal status.
+And you can open [http://localhost:5353/](http://localhost:5353/) in browser to check internal status.
 
 ## Client
 
