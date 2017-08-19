@@ -1,15 +1,90 @@
 let dns = require("native-dns");
-let https = require("https");
+let express = require("express");
 let request = require("request");
 let fs = require("fs");
+let util = require("util");
 
 let server = dns.createServer();
+let web = express();
 
+// configures
+const MIN_TTL = 600;
+const DUMP_PERIOD = 60; // seconds
+const LAZY_UPDATE_PERIOD = 0.1; // seconds
+
+
+// consts
+const NOERROR = 0;
+const SERVFAIL = 2;
+const NOTFOUND = 3;
+
+// global varibales
 let cache = {};
-let MIN_TTL = 3600;
+let update_queue = [];
+let dummping_cache = false;
+let dummping_status = false;
+
+let in_quest_google = 0;
+let request_count = 0;
+let success_count = 0;
+let failed_count = 0;
+let notfound_count = 0;
 
 let now = function() {
     return Date.now() / 1000;
+}
+
+function dump_cache(callback) {
+    if (dummping_cache) return;
+    dummping_cache = true;
+    fs.writeFile("cache.txt", JSON.stringify(cache), err => {
+        if (err) console.error(err);
+        dummping_cache = false;
+
+        if (callback) callback(err);
+    });
+}
+
+function dump_status(callback) {
+    if (dummping_status) return;
+    dummping_status = true;
+
+    status = {
+        request_count: request_count,
+        success_count: success_count,
+        failed_count: failed_count,
+        notfound_count: notfound_count
+    }
+    fs.writeFile("status.txt", JSON.stringify(status), err => {
+        if (err) console.err(err);
+        dummping_status = false;
+
+        if (callback) callback(err);
+    });
+}
+
+function load_cache() {
+    try {
+        cache_txt = fs.readFileSync("cache.txt");
+        cache = JSON.parse(cache_txt);
+        console.log("cache.txt loaded.");
+    } catch (error) {
+        console.error("Failed loading cache.txt");
+    }
+}
+
+function load_status() {
+    try {
+        status_txt = fs.readFileSync("status.txt");
+        status = JSON.parse(status_txt);
+        request_count = status["request_count"] || 0;
+        success_count = status["success_count"] || 0;
+        failed_count = status["failed_count"] || 0;
+        notfound_count = status["notfound_count"] || 0;
+        console.log("status.txt loaded.");
+    } catch (error) {
+        console.error("Failed loading status.txt");
+    }
 }
 
 let update_cache = function(que, content) {
@@ -28,8 +103,6 @@ let update_cache = function(que, content) {
     }
 
     cache[key] = [content, min_ttl + now()];
-
-    // fs.writeFileSync("cache.txt", JSON.stringify(cache));
 }
 
 let quest_cache = function(que, callback) {
@@ -41,8 +114,8 @@ let quest_cache = function(que, callback) {
         callback([], [], false);
         return ;
     }
-    if (cache[key] < now()) {
-        quest_google(que);
+    if (cache[key][1] < now()) {
+        update_queue.push(que);
     }
 
     let ret = cache[key][0];
@@ -55,41 +128,35 @@ let quest_cache = function(que, callback) {
 }
 
 let quest_google = function(que, callback) {
+    in_quest_google += 1;
     let p = "https://dns.google.com/resolve?name=" + que["name"] + "&type=" + que["type"] + "&edns_client_subnet=59.66.130.20";
-    // console.log("requst_url: " + p);
     request(p, (err, res, body) => {
+        in_quest_google -= 1;
         if (err) {
-            console.log(err);
-            // todo: try to record err...
-            callback([], []);
+            console.error(err);
+            if (callback) callback(SERVFAIL, [], []);
             return;
         }
 
-        // console.log(body);
         let ret = {};
         try {
             ret = JSON.parse(body);
         } catch (err) {
-            console.log(err)
-            // todo: try to record err...
-            callback([], []);
+            console.error(err);
+            if (callback) callback(SERVFAIL, [], []);
             return;
         }
         let answers = ret["Answer"] || [];
         let authoritys = ret["Authority"] || [];
         let additionals = ret["Additional"] || [];
-
         // if (additionals) console.log(additionals);
 
         if (ret["Status"] != 0) {
-            // todo: try to record err...
-            callback([], []);
+            callback(ret["Status"], [], []);
             return;
         }
         update_cache(que, ret);
-
-        // console.log(answers);
-        callback(answers, authoritys);
+        if (callback) callback(NOERROR, answers, authoritys);
     });
 }
 
@@ -100,7 +167,7 @@ let quest = function (questions, callback) {
     
     (function func(questions) {
         if (questions.length == 0) {
-            callback(answers, authoritys);
+            callback(NOERROR, answers, authoritys);
             return;
         }
 
@@ -113,7 +180,11 @@ let quest = function (questions, callback) {
                 authoritys = authoritys.concat(auth);
                 func(questions);
             } else {
-                quest_google(x, (ans, auth) => {
+                quest_google(x, (err_code, ans, auth) => {
+                    if (err_code) {
+                        callback(err_code, [], []);
+                        return;
+                    }
                     answers = answers.concat(ans);
                     authoritys = authoritys.concat(auth);
                     func(questions);
@@ -161,21 +232,60 @@ let to_native_dns_answers = function(google_answers) {
 
 server.on("request", (req, res) => {
     // console.log(req);
-    quest(req.question, (answers, authoritys) => {
-        // todo: if error ocurs, response error qrcode
-        res.answer = res.answer.concat(to_native_dns_answers(answers));
-        res.authority = res.authority.concat(to_native_dns_answers(authoritys));
-        res.send();
-        console.log("qustions: " + JSON.stringify(req.question) + "\nanswers: " + JSON.stringify(answers) + "\nauthoritys: " + JSON.stringify(authoritys));
+    request_count += 1;
+    
+    console.log("qustions: " + JSON.stringify(req.question));
+    quest(req.question, (err_code, answers, authoritys) => {
+        if (err_code) {
+            console.log(util.format("ERROR: %d", err_code));
+            console.log(answers);
+            console.log(authoritys);
+            if (err_code == NOTFOUND) notfound_count += 1;
+            else failed_count += 1;
+            res.rcode = err_code;
+            res.send();
+        } else {
+            success_count += 1;
+            res.answer = res.answer.concat(to_native_dns_answers(answers));
+            res.authority = res.authority.concat(to_native_dns_answers(authoritys));
+            res.send();
+        }
     });
 });
 
-/*
-try {
-    cache_txt = fs.readFileSync("cache.txt");
-    cache = JSON.parse(cache_txt);
-    console.log("cache.txt loaded.");
-} catch (error) {
-    console.log("Failed loading cache.txt");
-}*/
+
+function process_cache_queue() {
+    if (in_quest_google >= 3) return;
+    if (update_queue.length == 0) return;
+
+    que = update_queue.pop();
+    let key = que.name + "_" + que.type;
+    if (cache[key][1] < now()) {
+        quest_google(que);
+    }
+
+    if (update_queue.length) process_cache_queue();
+}
+
+
+setInterval(dump_cache, DUMP_PERIOD * 1000);
+setInterval(process_cache_queue, LAZY_UPDATE_PERIOD * 1000);
+
+process.on('SIGINT', function() {
+    dump_cache((err) => {
+        dump_status((err) => {
+            process.exit();
+        });
+    });
+});
+
+web.get("/", (req, res) => {
+    status = util.format("request_count:\t%d\nsuccess_count:\t%d\nfailed_count\t%d\nnotfound_count:\t%d\nin_quest_google:\t%d\nupdate_queue_size:\t%d\n", request_count, success_count, failed_count, notfound_count, in_quest_google, update_queue.length);
+    res.send(status);
+});
+
+load_cache();
+load_status();
+
 server.serve(53);
+web.listen(5353);
