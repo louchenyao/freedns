@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/Chenyao2333/freedns#readme",
   "dependencies": {
-    "native-dns": "^0.7.0"
+    "native-dns": "^0.7.0",
+    "request": "^2.81.0"
   }
 }
