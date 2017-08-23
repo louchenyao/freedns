@@ -1,6 +1,8 @@
 let dns = require("native-dns");
 let express = require("express");
 let request = require("request");
+let https = require("https");
+let http = require("http");
 let fs = require("fs");
 let util = require("util");
 
@@ -12,6 +14,9 @@ const MIN_TTL = 600;
 const DUMP_PERIOD = 60; // seconds
 const LAZY_UPDATE_PERIOD = 0.1; // seconds
 const EDNS_IP = "59.66.0.0/16"
+
+http.globalAgent.maxSockets = 20;
+https.globalAgent.maxSockets = 20;
 
 
 // consts
@@ -129,6 +134,7 @@ let quest_cache = function(que, callback) {
 }
 
 let quest_google = function(que, callback) {
+    // let agent = new https.Agent({keepAlive: true, maxSockets: 5});
     in_quest_google += 1;
     let p = "https://dns.google.com/resolve?name=" + que["name"] + "&type=" + que["type"] + "&edns_client_subnet=" + EDNS_IP;
     request(p, (err, res, body) => {
@@ -153,7 +159,7 @@ let quest_google = function(que, callback) {
         // if (additionals) console.log(additionals);
 
         if (ret["Status"] != 0) {
-            callback(ret["Status"], [], []);
+            if (callback) callback(ret["Status"], [], []);
             return;
         }
         update_cache(que, ret);
