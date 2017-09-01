@@ -14,6 +14,8 @@ const MIN_TTL = 600;
 const DUMP_PERIOD = 60; // seconds
 const LAZY_UPDATE_PERIOD = 0.1; // seconds
 const EDNS_IP = "59.66.0.0/16"
+const CACHE_EXPERIED_TIME = 60 * 60 * 24 * 15; // seconds // 15 days
+const CLEAN_CACHE_PERIOD = 60 * 60; // seconds // 1 hours
 
 http.globalAgent.maxSockets = 20;
 https.globalAgent.maxSockets = 20;
@@ -274,10 +276,23 @@ function process_cache_queue() {
     if (update_queue.length) process_cache_queue();
 }
 
+function clean_cache() {
+    // console.log("in clean_cache");
+    let experied_time = now() + CACHE_EXPERIED_TIME;
+    for (let key of Object.keys(cache)){
+        if (cache[key][1] >= experied_time) {
+            delete cache[key];
+            console.log("deleted " + key);
+        }
+    }
+    // console.log("done");
+}
+
 
 setInterval(dump_cache, DUMP_PERIOD * 1000);
 setInterval(dump_status, DUMP_PERIOD * 1000);
 setInterval(process_cache_queue, LAZY_UPDATE_PERIOD * 1000);
+setInterval(clean_cache, CLEAN_CACHE_PERIOD * 1000);
 
 process.on('SIGINT', function() {
     dump_cache((err) => {
