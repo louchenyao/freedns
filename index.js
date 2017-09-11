@@ -540,5 +540,5 @@ load_status();
 load_hosts();
 load_domain_list();
 
-server.serve(53, "192.168.1.4");
+server.serve(53);
 web.listen(5353);
