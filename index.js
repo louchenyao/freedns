@@ -1,4 +1,5 @@
 let dns = require("native-dns");
+let geoip = require("geoip-lite");
 let express = require("express");
 let request = require("request");
 let https = require("https");
@@ -9,17 +10,10 @@ let util = require("util");
 let server = dns.createServer();
 let web = express();
 
-// configures
-const MIN_TTL = 600;
-const DUMP_PERIOD = 60; // seconds
-const LAZY_UPDATE_PERIOD = 0.1; // seconds
-const EDNS_IP = "59.66.0.0/16"
-const CACHE_EXPERIED_TIME = 60 * 60 * 24 * 15; // seconds // 15 days
-const CLEAN_CACHE_PERIOD = 60 * 60; // seconds // 1 hours
+const CONFIG = require("./config");
 
-http.globalAgent.maxSockets = 20;
-https.globalAgent.maxSockets = 20;
-
+http.globalAgent.maxSockets = CONFIG.HTTP_MAX_SOCKETS;
+https.globalAgent.maxSockets = CONFIG.HTTP_MAX_SOCKETS;
 
 // consts
 const NOERROR = 0;
@@ -29,9 +23,11 @@ const NOTFOUND = 3;
 // global varibales
 let cache = {};
 let hosts = {};
+let chain_domain_list = {};
 let update_queue = [];
 let dummping_cache = false;
 let dummping_status = false;
+let dummping_list = false;
 
 let in_quest_google = 0;
 let request_count = 0;
@@ -72,6 +68,32 @@ function dump_status(callback) {
     });
 }
 
+function dump_domain_list(callback) {
+    if (dummping_list) return;
+    dummping_list = true;
+
+    let lists = {
+        "chain_domain_list": chain_domain_list
+    };
+    fs.writeFile("domain_list.txt", JSON.stringify(lists), err => {
+        if (err) console.err(err);
+        dummping_list = false;
+
+        if (callback) callback(err);
+    });
+}
+
+function load_domain_list() {
+    try {
+        txt = fs.readFileSync("domain_list.txt");
+        domain_list = JSON.parse(txt);
+        chain_domain_list = domain_list["chain_domain_list"] || {};
+        console.log("domain_list.txt loaded.");
+    } catch (error) {
+        console.error("Failed loading domain_list.txt");
+    }
+}
+
 function load_cache() {
     try {
         cache_txt = fs.readFileSync("cache.txt");
@@ -108,22 +130,15 @@ function is_ipv4(ip) {
     return /^\d*.\d*.\d*.\d*$/.test(ip);
 }
 
+function is_chain_ip(ip) {
+    let res = geoip.lookup(ip);
+    return res && res.country == "CN";
+}
+
 function gen_answer_from_host(host) {
     try {
-        let key = ""
-        let value = {  
-            "Status":0,
-            "TC":false,
-            "RD":true,
-            "RA":true,
-            "AD":false,
-            "CD":false,
-            "Question":[  
-                {  
-                    "name":"",
-                    "type":0,
-                }
-            ],
+        let key = "";
+        let value = {
             "Answer":[  
                 {  
                     "name":"",
@@ -133,9 +148,7 @@ function gen_answer_from_host(host) {
                 }
             ],
             "Additional":[  
-            ],
-            "edns_client_subnet": EDNS_IP,
-            "Comment":"From hosts file"
+            ]
         }
 
         let ip, name;
@@ -147,17 +160,14 @@ function gen_answer_from_host(host) {
         }
         
         key = name + "_";
-        value["Question"][0]["name"] = name + ".";
         value["Answer"][0]["name"] = name + ".";
         value["Answer"][0]["data"] = ip;
         
         if (is_ipv4(ip)) {
             key += "1";
-            value["Question"][0]["type"] = 1;
             value["Answer"][0]["type"] = 1;
         } else {
             key += "28";
-            value["Question"][0]["type"] = 28;
             value["Answer"][0]["type"] = 28;
         }
 
@@ -201,16 +211,22 @@ function update_cache(que, content) {
     let min_ttl = 9999999;
     let answers = content["Answer"] || [];
     let authoritys = content["Authority"] || [];
-
+    
     for (let x of answers.concat(authoritys)) {
         if (x.TTL < min_ttl) min_ttl = x.TTL;
     }
-    if (MIN_TTL > min_ttl) min_ttl = MIN_TTL;
+    if (CONFIG.MIN_TTL > min_ttl) min_ttl = CONFIG.MIN_TTL;
     for (let x of answers.concat(authoritys)) {
         if (x.TTL < min_ttl) x.TTL = min_ttl;
     }
-
-    cache[key] = [content, min_ttl + now()];
+    
+    cache[key] = [
+        {
+            "Answer": answers,
+            "Authority": authoritys
+        },
+        min_ttl + now()
+    ];
 }
 
 function quest_cache(que, callback) {
@@ -235,6 +251,55 @@ function quest_cache(que, callback) {
     callback(answers, authoritys, true);
 }
 
+function convert_native_to_google_answer(ans) {
+    let data = "";
+    if (ans.type == 1 || ans.type == 28) {
+        data = ans.address;
+    } else if (ans.type == 5) {
+        data = ans.data;
+    } else if (ans.type == 6) { // SOA
+        data = [ans["primary"], ans["admin"], ans["serial"], ans["refresh"], ans["retry"], ans["expiration"], ans["minimum"]].join(" ");
+    } else if (x.type == 15) { // MX
+        data = [ans["priority"], ans["exchange"]].join(" ");
+    }
+    return {
+        "name": ans.name + ".",
+        "type": ans.type,
+        "TTL": ans.ttl,
+        "data": data
+    };
+}
+
+function quest_udp_dns(que, callback) {
+    let req = dns.Request({
+        question: que,
+        server: { address: '114.114.114.114', port: 53, type: 'udp' },
+        timeout: 2000
+    });
+    req.on("message", (err, answer) => {
+        //console.log(err);
+        //console.log(answer);
+        if (err) {
+            callback(SERVFAIL, [], []);
+            return;
+        }
+
+        let ret_ans = [];
+        let ret_auth = [];
+        for (let x of answer.answer) {
+            ret_ans.push(convert_native_to_google_answer(x));
+        }
+        
+        for (let x of answer.authority) {
+            ret_auth.push(convert_native_to_google_answer(x));
+        }
+
+        callback(NOERROR, ret_ans, ret_auth);
+    });
+
+    req.send();
+}
+
 
 function quest_hosts(que, callback) {
     let key = que.name + "_" + que.type;
@@ -247,15 +312,13 @@ function quest_hosts(que, callback) {
     let answers = ret["Answer"] || [];
     let authoritys = ret["Authority"] || [];
 
-    console.log(answers)
-
     callback(answers, authoritys, true);
 }
 
 function quest_google(que, callback) {
     // let agent = new https.Agent({keepAlive: true, maxSockets: 5});
     in_quest_google += 1;
-    let p = "https://dns.google.com/resolve?name=" + que["name"] + "&type=" + que["type"] + "&edns_client_subnet=" + EDNS_IP;
+    let p = "https://dns.google.com/resolve?name=" + que["name"] + "&type=" + que["type"] + "&edns_client_subnet=" + CONFIG.EDNS_IP;
     request(p, (err, res, body) => {
         in_quest_google -= 1;
         if (err) {
@@ -286,6 +349,19 @@ function quest_google(que, callback) {
     });
 }
 
+function blocked(que, ans, sure) {
+    // if sure is false, we can infer by the ans length
+    if (!sure && (!ans || ans.length == 0)) {
+        return !chain_domain_list[que.name];
+    }
+    
+    if (ans.length > 0 && (ans[0].type == 1 || ans[0].type == 28) && !is_chain_ip(ans[0].data)) {
+        return true;
+    }
+
+    return false;
+}
+
 function quest(questions, callback) {
     let answers = [];
     let authoritys = [];
@@ -312,7 +388,7 @@ function quest(questions, callback) {
                         authoritys = authoritys.concat(auth);
                         func(questions);
                     } else {
-                        quest_google(x, (err_code, ans, auth) => {
+                        let quest_google_callbck = function(err_code, ans, auth) {
                             if (err_code) {
                                 callback(err_code, [], []);
                                 return;
@@ -320,12 +396,35 @@ function quest(questions, callback) {
                             answers = answers.concat(ans);
                             authoritys = authoritys.concat(auth);
                             func(questions);
-                        });
+                        }
+                        if (chain_domain_list[x.name] !== false) {
+                            quest_udp_dns(x, (err_code, ans, auth) => {
+                                if (err_code || blocked(x, ans)) { // maybe banned by gfw
+                                    console.log("foreign: ", x);
+                                    quest_google(x, quest_google_callbck);
+                                    
+                                    if (x.type == 1 && blocked(x, ans, true)) {
+                                        chain_domain_list[x.name] = false;
+                                    }
+                                    return;
+                                } else {
+                                    if (x.type == 1) chain_domain_list[x.name] = true;
+                                    update_cache(x, {"Answer": ans, "Authority": auth});
+                                    //console.log(auth);
+                                    //console.log(ans);
+
+                                    answers = answers.concat(ans);
+                                    authoritys = authoritys.concat(auth);
+                                    func(questions);
+                                }
+                            });
+                        } else {
+                            quest_google(x, quest_google_callbck);
+                        }
                     }
                 });
             }
         });
-
     }) (questions);
 }
 
@@ -333,6 +432,7 @@ function to_native_dns_answers(google_answers) {
     // console.log("google_answers: " + JSON.stringify(google_answers));
     let ret = [];
     for (let x of google_answers) {
+        //console.log(x);
         let item = {name: x["name"], ttl: x["TTL"], type: x["type"], class: 1};
 
         if (x.type == 1) { // A
@@ -366,7 +466,7 @@ function to_native_dns_answers(google_answers) {
 }
 
 server.on("request", (req, res) => {
-    // console.log(req);
+    // console.log(req);ue
     request_count += 1;
     
     console.log("qustions: " + JSON.stringify(req.question));
@@ -404,7 +504,7 @@ function process_cache_queue() {
 
 function clean_cache() {
     // console.log("in clean_cache");
-    let experied_time = now() + CACHE_EXPERIED_TIME;
+    let experied_time = now() + CONFIG.CACHE_EXPERIED_TIME;
     for (let key of Object.keys(cache)){
         if (cache[key][1] >= experied_time) {
             delete cache[key];
@@ -414,16 +514,18 @@ function clean_cache() {
     // console.log("done");
 }
 
-
-setInterval(dump_cache, DUMP_PERIOD * 1000);
-setInterval(dump_status, DUMP_PERIOD * 1000);
-setInterval(process_cache_queue, LAZY_UPDATE_PERIOD * 1000);
-setInterval(clean_cache, CLEAN_CACHE_PERIOD * 1000);
+setInterval(dump_cache, CONFIG.DUMP_PERIOD * 1000);
+setInterval(dump_status, CONFIG.DUMP_PERIOD * 1000);
+setInterval(dump_domain_list, CONFIG.DUMP_PERIOD * 1000);
+setInterval(process_cache_queue, CONFIG.LAZY_UPDATE_PERIOD * 1000);
+setInterval(clean_cache, CONFIG.CLEAN_CACHE_PERIOD * 1000);
 
 process.on('SIGINT', function() {
     dump_cache((err) => {
         dump_status((err) => {
-            process.exit();
+            dump_domain_list((err) => {
+                process.exit();
+            });
         });
     });
 });
@@ -436,6 +538,7 @@ web.get("/", (req, res) => {
 load_cache();
 load_status();
 load_hosts();
+load_domain_list();
 
-server.serve(53);
+server.serve(53, "192.168.1.4");
 web.listen(5353);
