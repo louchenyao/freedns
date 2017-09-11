@@ -158,7 +158,7 @@ function gen_answer_from_host(host) {
         } else {
             key += "28";
             value["Question"][0]["type"] = 28;
-            value["Answer"][0]["type"] = 1;
+            value["Answer"][0]["type"] = 28;
         }
 
         return [key, value];
@@ -181,7 +181,7 @@ function load_hosts() {
             ret = gen_answer_from_host(host);
             key = ret[0];
             value = ret[1];
-            //console.log(value);
+            // console.log(key, value);
             if (key) {
                 hosts[key] = value;
                 cnt += 1;
@@ -192,6 +192,7 @@ function load_hosts() {
         console.log("Faild loading hosts.");
         console.error(error);
     }
+    // console.log(hosts);
 }
 
 function update_cache(que, content) {
@@ -235,16 +236,18 @@ function quest_cache(que, callback) {
 }
 
 
-function quest_cache(que, callback) {
+function quest_hosts(que, callback) {
     let key = que.name + "_" + que.type;
     if (!hosts[key]) {
         callback([], [], false);
         return ;
     }
 
-    let ret = cache[key];
+    let ret = hosts[key];
     let answers = ret["Answer"] || [];
     let authoritys = ret["Authority"] || [];
+
+    console.log(answers)
 
     callback(answers, authoritys, true);
 }
