@@ -28,6 +28,7 @@ const NOTFOUND = 3;
 
 // global varibales
 let cache = {};
+let hosts = {};
 let update_queue = [];
 let dummping_cache = false;
 let dummping_status = false;
@@ -38,7 +39,7 @@ let success_count = 0;
 let failed_count = 0;
 let notfound_count = 0;
 
-let now = function() {
+function now() {
     return Date.now() / 1000;
 }
 
@@ -95,7 +96,105 @@ function load_status() {
     }
 }
 
-let update_cache = function(que, content) {
+function escape_comment(txt) {
+    let p = txt.indexOf("#");
+    if (p >= 0) {
+        txt = txt.slice(0, p);
+    }
+    return txt;
+}
+
+function is_ipv4(ip) {
+    return /^\d*.\d*.\d*.\d*$/.test(ip);
+}
+
+function gen_answer_from_host(host) {
+    try {
+        let key = ""
+        let value = {  
+            "Status":0,
+            "TC":false,
+            "RD":true,
+            "RA":true,
+            "AD":false,
+            "CD":false,
+            "Question":[  
+                {  
+                    "name":"",
+                    "type":0,
+                }
+            ],
+            "Answer":[  
+                {  
+                    "name":"",
+                    "type":0,
+                    "TTL":600,
+                    "data":""
+                }
+            ],
+            "Additional":[  
+            ],
+            "edns_client_subnet": EDNS_IP,
+            "Comment":"From hosts file"
+        }
+
+        let ip, name;
+        host = host.split(" ");
+        ip = host[0];
+        name = host[1];
+        if (name.endsWith(".")) {
+            name = name.slice(0, -1);
+        }
+        
+        key = name + "_";
+        value["Question"][0]["name"] = name + ".";
+        value["Answer"][0]["name"] = name + ".";
+        value["Answer"][0]["data"] = ip;
+        
+        if (is_ipv4(ip)) {
+            key += "1";
+            value["Question"][0]["type"] = 1;
+            value["Answer"][0]["type"] = 1;
+        } else {
+            key += "28";
+            value["Question"][0]["type"] = 28;
+            value["Answer"][0]["type"] = 1;
+        }
+
+        return [key, value];
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+function load_hosts() {
+    let cnt = 0;
+    try {
+        hosts_txt = fs.readFileSync("hosts").toString();
+        // console.log(hosts_txt);
+        for (let host of hosts_txt.split("\n")) {
+            host = escape_comment(host)
+            if (host.length < 3) {
+                continue
+            }
+            let key, value, ret;
+            ret = gen_answer_from_host(host);
+            key = ret[0];
+            value = ret[1];
+            //console.log(value);
+            if (key) {
+                hosts[key] = value;
+                cnt += 1;
+            }
+        }
+        console.log("Loaded " + cnt + " hosts.");
+    } catch (error) {
+        console.log("Faild loading hosts.");
+        console.error(error);
+    }
+}
+
+function update_cache(que, content) {
     let key = que.name + "_" + que.type;
 
     let min_ttl = 9999999;
@@ -113,7 +212,7 @@ let update_cache = function(que, content) {
     cache[key] = [content, min_ttl + now()];
 }
 
-let quest_cache = function(que, callback) {
+function quest_cache(que, callback) {
     let key = que.name + "_" + que.type;
 
     // console.log(key);
@@ -135,7 +234,22 @@ let quest_cache = function(que, callback) {
     callback(answers, authoritys, true);
 }
 
-let quest_google = function(que, callback) {
+
+function quest_cache(que, callback) {
+    let key = que.name + "_" + que.type;
+    if (!hosts[key]) {
+        callback([], [], false);
+        return ;
+    }
+
+    let ret = cache[key];
+    let answers = ret["Answer"] || [];
+    let authoritys = ret["Authority"] || [];
+
+    callback(answers, authoritys, true);
+}
+
+function quest_google(que, callback) {
     // let agent = new https.Agent({keepAlive: true, maxSockets: 5});
     in_quest_google += 1;
     let p = "https://dns.google.com/resolve?name=" + que["name"] + "&type=" + que["type"] + "&edns_client_subnet=" + EDNS_IP;
@@ -169,7 +283,7 @@ let quest_google = function(que, callback) {
     });
 }
 
-let quest = function (questions, callback) {
+function quest(questions, callback) {
     let answers = [];
     let authoritys = [];
     // console.log("questions: " + JSON.stringify(questions));
@@ -183,27 +297,36 @@ let quest = function (questions, callback) {
         x = questions[0];
         questions = questions.slice(1);
 
-        quest_cache(x, (ans, auth, hit) => {
+        quest_hosts(x, (ans, auth, hit) => {
             if (hit) {
                 answers = answers.concat(ans);
                 authoritys = authoritys.concat(auth);
                 func(questions);
             } else {
-                quest_google(x, (err_code, ans, auth) => {
-                    if (err_code) {
-                        callback(err_code, [], []);
-                        return;
+                quest_cache(x, (ans, auth, hit) => {
+                    if (hit) {
+                        answers = answers.concat(ans);
+                        authoritys = authoritys.concat(auth);
+                        func(questions);
+                    } else {
+                        quest_google(x, (err_code, ans, auth) => {
+                            if (err_code) {
+                                callback(err_code, [], []);
+                                return;
+                            }
+                            answers = answers.concat(ans);
+                            authoritys = authoritys.concat(auth);
+                            func(questions);
+                        });
                     }
-                    answers = answers.concat(ans);
-                    authoritys = authoritys.concat(auth);
-                    func(questions);
                 });
             }
         });
+
     }) (questions);
 }
 
-let to_native_dns_answers = function(google_answers) {
+function to_native_dns_answers(google_answers) {
     // console.log("google_answers: " + JSON.stringify(google_answers));
     let ret = [];
     for (let x of google_answers) {
@@ -309,6 +432,7 @@ web.get("/", (req, res) => {
 
 load_cache();
 load_status();
+load_hosts();
 
 server.serve(53);
 web.listen(5353);
