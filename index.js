@@ -139,15 +139,15 @@ function gen_answer_from_host(host) {
     try {
         let key = "";
         let value = {
-            "Answer":[  
-                {  
-                    "name":"",
-                    "type":0,
-                    "TTL":600,
-                    "data":""
+            "Answer": [
+                {
+                    "name": "",
+                    "type": 0,
+                    "TTL": 600,
+                    "data": ""
                 }
             ],
-            "Additional":[  
+            "Additional": [
             ]
         }
 
@@ -158,11 +158,11 @@ function gen_answer_from_host(host) {
         if (name.endsWith(".")) {
             name = name.slice(0, -1);
         }
-        
+
         key = name + "_";
         value["Answer"][0]["name"] = name + ".";
         value["Answer"][0]["data"] = ip;
-        
+
         if (is_ipv4(ip)) {
             key += "1";
             value["Answer"][0]["type"] = 1;
@@ -211,7 +211,7 @@ function update_cache(que, content) {
     let min_ttl = 9999999;
     let answers = content["Answer"] || [];
     let authoritys = content["Authority"] || [];
-    
+
     for (let x of answers.concat(authoritys)) {
         if (x.TTL < min_ttl) min_ttl = x.TTL;
     }
@@ -219,7 +219,7 @@ function update_cache(que, content) {
     for (let x of answers.concat(authoritys)) {
         if (x.TTL < min_ttl) x.TTL = min_ttl;
     }
-    
+
     cache[key] = [
         {
             "Answer": answers,
@@ -236,7 +236,7 @@ function quest_cache(que, callback) {
 
     if (!cache[key]) {
         callback([], [], false);
-        return ;
+        return;
     }
     if (cache[key][1] < now()) {
         update_queue.push(que);
@@ -289,7 +289,7 @@ function quest_udp_dns(que, callback) {
         for (let x of answer.answer) {
             ret_ans.push(convert_native_to_google_answer(x));
         }
-        
+
         for (let x of answer.authority) {
             ret_auth.push(convert_native_to_google_answer(x));
         }
@@ -305,7 +305,7 @@ function quest_hosts(que, callback) {
     let key = que.name + "_" + que.type;
     if (!hosts[key]) {
         callback([], [], false);
-        return ;
+        return;
     }
 
     let ret = hosts[key];
@@ -354,7 +354,7 @@ function blocked(que, ans, sure) {
     if (!sure && (!ans || ans.length == 0)) {
         return !chain_domain_list[que.name];
     }
-    
+
     if (ans.length > 0 && (ans[0].type == 1 || ans[0].type == 28) && !is_chain_ip(ans[0].data)) {
         return true;
     }
@@ -362,11 +362,34 @@ function blocked(que, ans, sure) {
     return false;
 }
 
+function quest_net(x, callback) {
+    if (chain_domain_list[x.name] !== false) {
+        quest_udp_dns(x, (err_code, ans, auth) => {
+            if (err_code || blocked(x, ans)) { // maybe banned by gfw
+                console.log("foreign: ", x);
+                quest_google(x, callback);
+
+                if (x.type == 1 && blocked(x, ans, true)) {
+                    chain_domain_list[x.name] = false;
+                }
+                return;
+            } else {
+                if (x.type == 1) chain_domain_list[x.name] = true;
+
+                update_cache(x, { "Answer": ans, "Authority": auth });
+                if (callback) callback(err_code, ans, auth);
+            }
+        });
+    } else {
+        quest_google(x, callback);
+    }
+}
+
 function quest(questions, callback) {
     let answers = [];
     let authoritys = [];
     // console.log("questions: " + JSON.stringify(questions));
-    
+
     (function func(questions) {
         if (questions.length == 0) {
             callback(NOERROR, answers, authoritys);
@@ -388,7 +411,7 @@ function quest(questions, callback) {
                         authoritys = authoritys.concat(auth);
                         func(questions);
                     } else {
-                        let quest_google_callbck = function(err_code, ans, auth) {
+                        quest_net(x, (err_code, ans, auth) => {
                             if (err_code) {
                                 callback(err_code, [], []);
                                 return;
@@ -396,36 +419,12 @@ function quest(questions, callback) {
                             answers = answers.concat(ans);
                             authoritys = authoritys.concat(auth);
                             func(questions);
-                        }
-                        if (chain_domain_list[x.name] !== false) {
-                            quest_udp_dns(x, (err_code, ans, auth) => {
-                                if (err_code || blocked(x, ans)) { // maybe banned by gfw
-                                    console.log("foreign: ", x);
-                                    quest_google(x, quest_google_callbck);
-                                    
-                                    if (x.type == 1 && blocked(x, ans, true)) {
-                                        chain_domain_list[x.name] = false;
-                                    }
-                                    return;
-                                } else {
-                                    if (x.type == 1) chain_domain_list[x.name] = true;
-                                    update_cache(x, {"Answer": ans, "Authority": auth});
-                                    //console.log(auth);
-                                    //console.log(ans);
-
-                                    answers = answers.concat(ans);
-                                    authoritys = authoritys.concat(auth);
-                                    func(questions);
-                                }
-                            });
-                        } else {
-                            quest_google(x, quest_google_callbck);
-                        }
+                        });
                     }
                 });
             }
         });
-    }) (questions);
+    })(questions);
 }
 
 function to_native_dns_answers(google_answers) {
@@ -433,7 +432,7 @@ function to_native_dns_answers(google_answers) {
     let ret = [];
     for (let x of google_answers) {
         //console.log(x);
-        let item = {name: x["name"], ttl: x["TTL"], type: x["type"], class: 1};
+        let item = { name: x["name"], ttl: x["TTL"], type: x["type"], class: 1 };
 
         if (x.type == 1) { // A
             item["address"] = x["data"];
@@ -468,7 +467,7 @@ function to_native_dns_answers(google_answers) {
 server.on("request", (req, res) => {
     // console.log(req);ue
     request_count += 1;
-    
+
     console.log("qustions: " + JSON.stringify(req.question));
     quest(req.question, (err_code, answers, authoritys) => {
         if (err_code) {
@@ -496,7 +495,7 @@ function process_cache_queue() {
     que = update_queue.pop();
     let key = que.name + "_" + que.type;
     if (cache[key][1] < now()) {
-        quest_google(que);
+        quest_net(que);
     }
 
     if (update_queue.length) process_cache_queue();
@@ -505,7 +504,7 @@ function process_cache_queue() {
 function clean_cache() {
     // console.log("in clean_cache");
     let experied_time = now() + CONFIG.CACHE_EXPERIED_TIME;
-    for (let key of Object.keys(cache)){
+    for (let key of Object.keys(cache)) {
         if (cache[key][1] >= experied_time) {
             delete cache[key];
             console.log("deleted " + key);
@@ -520,7 +519,7 @@ setInterval(dump_domain_list, CONFIG.DUMP_PERIOD * 1000);
 setInterval(process_cache_queue, CONFIG.LAZY_UPDATE_PERIOD * 1000);
 setInterval(clean_cache, CONFIG.CLEAN_CACHE_PERIOD * 1000);
 
-process.on('SIGINT', function() {
+process.on('SIGINT', function () {
     dump_cache((err) => {
         dump_status((err) => {
             dump_domain_list((err) => {
@@ -540,5 +539,5 @@ load_status();
 load_hosts();
 load_domain_list();
 
-server.serve(53);
-web.listen(5353);
+server.serve(53, CONFIG.IP);
+web.listen(5353, CONFIG.IP);

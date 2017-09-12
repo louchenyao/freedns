@@ -1,4 +1,5 @@
 module.exports = {
+    IP: "0.0.0.0",
     MIN_TTL: 600,
     DUMP_PERIOD: 50,
     LAZY_UPDATE_PERIOD: 0.1,
