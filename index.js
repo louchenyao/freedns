@@ -221,6 +221,8 @@ function update_cache(que, content) {
         if (x.TTL < min_ttl) x.TTL = min_ttl;
     }
 
+    if (min_ttl > CONFIG.MIN_TTL * 10) min_ttl = CONFIG.MIN_TTL * 10;
+
     cache[key] = [
         {
             "Answer": answers,
@@ -366,7 +368,7 @@ function blocked(que, ans, sure) {
 }
 
 function quest_net(x, callback) {
-    if (chain_domain_list[x.name] !== false) {
+    if (chain_domain_list[x.name] !== false || x.udp_first) {
         quest_udp_dns(x, (err_code, ans, auth) => {
             if (err_code || blocked(x, ans)) { // maybe banned by gfw
                 console.log("foreign: ", x);
@@ -498,6 +500,7 @@ function process_cache_queue() {
     que = update_queue.pop();
     let key = que.name + "_" + que.type;
     if (cache[key][1] < now()) {
+        que.udp_first = true;
         quest_net(que);
     }
 
