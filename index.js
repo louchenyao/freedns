@@ -262,7 +262,7 @@ function convert_native_to_google_answer(ans) {
         data = ans.data;
     } else if (ans.type == 6) { // SOA
         data = [ans["primary"], ans["admin"], ans["serial"], ans["refresh"], ans["retry"], ans["expiration"], ans["minimum"]].join(" ");
-    } else if (x.type == 15) { // MX
+    } else if (ans.type == 15) { // MX
         data = [ans["priority"], ans["exchange"]].join(" ");
     }
     return {
