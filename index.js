@@ -30,6 +30,7 @@ let dummping_status = false;
 let dummping_list = false;
 
 let in_quest_google = 0;
+let in_quest_udp = 0;
 let request_count = 0;
 let success_count = 0;
 let failed_count = 0;
@@ -276,9 +277,11 @@ function quest_udp_dns(que, callback) {
         server: { address: '114.114.114.114', port: 53, type: 'udp' },
         timeout: 2000
     });
+    in_quest_udp += 1;
     req.on("message", (err, answer) => {
         //console.log(err);
         //console.log(answer);
+        in_quest_udp -= 1;
         if (err) {
             callback(SERVFAIL, [], []);
             return;
@@ -489,7 +492,7 @@ server.on("request", (req, res) => {
 
 
 function process_cache_queue() {
-    if (in_quest_google >= 3) return;
+    if (in_quest_google + in_quest_udp >= 3) return;
     if (update_queue.length == 0) return;
 
     que = update_queue.pop();
@@ -530,7 +533,7 @@ process.on('SIGINT', function () {
 });
 
 web.get("/", (req, res) => {
-    status = util.format("request_count:\t%d\nsuccess_count:\t%d\nfailed_count\t%d\nnotfound_count:\t%d\nin_quest_google:\t%d\nupdate_queue_size:\t%d\n", request_count, success_count, failed_count, notfound_count, in_quest_google, update_queue.length);
+    status = util.format("request_count:\t%d\nsuccess_count:\t%d\nfailed_count\t%d\nnotfound_count:\t%d\nin_quest_google:\t%d\nin_quest_udp:\t%d\nupdate_queue_size:\t%d\n", request_count, success_count, failed_count, notfound_count, in_quest_google, in_quest_udp, update_queue.length);
     res.send(status);
 });
 
