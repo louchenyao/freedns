@@ -277,13 +277,12 @@ function quest_udp_dns(que, callback) {
     let req = dns.Request({
         question: que,
         server: { address: '114.114.114.114', port: 53, type: 'udp' },
-        timeout: 2000
+        timeout: 500
     });
     in_quest_udp += 1;
     req.on("message", (err, answer) => {
         //console.log(err);
         //console.log(answer);
-        in_quest_udp -= 1;
         if (err) {
             callback(SERVFAIL, [], []);
             return;
@@ -300,6 +299,10 @@ function quest_udp_dns(que, callback) {
         }
 
         callback(NOERROR, ret_ans, ret_auth);
+    });
+
+    req.on("end", (err) => {
+        in_quest_udp -= 1;
     });
 
     req.send();
