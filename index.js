@@ -274,9 +274,10 @@ function convert_native_to_google_answer(ans) {
 }
 
 function quest_udp_dns(que, callback) {
+    let server_ip = que.dns_server_ip || '114.114.114.114';
     let req = dns.Request({
         question: que,
-        server: { address: '114.114.114.114', port: 53, type: 'udp' },
+        server: { address: server_ip, port: 53, type: 'udp' },
         timeout: 500
     });
     in_quest_udp += 1;
@@ -371,25 +372,35 @@ function blocked(que, ans, sure) {
 }
 
 function quest_net(x, callback) {
+    function quest_cb(err_code, ans, auth) {
+        update_cache(x, { "Answer": ans, "Authority": auth });
+        if (callback) callback(err_code, ans, auth);
+    }
+
     if (chain_domain_list[x.name] !== false || x.udp_first) {
         quest_udp_dns(x, (err_code, ans, auth) => {
             if (err_code || blocked(x, ans)) { // maybe banned by gfw
                 console.log("foreign: ", x);
-                quest_google(x, callback);
 
+                if (CONFIG.SECONDDARY_UPSTREAM_DNS_IP == "https") {
+                    quest_google(x, quest_cb);                    
+                } else {
+                    x.dns_server_ip = "8.8.8.8";
+                    quest_udp_dns(x, quest_cb);
+                }
+                    
                 if (x.type == 1 && blocked(x, ans, true)) {
                     chain_domain_list[x.name] = false;
                 }
                 return;
             } else {
                 if (x.type == 1) chain_domain_list[x.name] = true;
-
-                update_cache(x, { "Answer": ans, "Authority": auth });
-                if (callback) callback(err_code, ans, auth);
+                
+                quest_cb(NOERROR, ans, auth);
             }
         });
     } else {
-        quest_google(x, callback);
+        quest_google(x, quest_cb);
     }
 }
 
