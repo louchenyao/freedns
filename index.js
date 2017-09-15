@@ -31,6 +31,7 @@ let dummping_list = false;
 
 let in_quest_google = 0;
 let in_quest_udp = 0;
+let requesting_count = 0;
 let request_count = 0;
 let success_count = 0;
 let failed_count = 0;
@@ -488,6 +489,7 @@ function to_native_dns_answers(google_answers) {
 server.on("request", (req, res) => {
     // console.log(req);ue
     request_count += 1;
+    requesting_count += 1;
 
     console.log("qustions: " + JSON.stringify(req.question));
     quest(req.question, (err_code, answers, authoritys) => {
@@ -505,6 +507,7 @@ server.on("request", (req, res) => {
             res.authority = res.authority.concat(to_native_dns_answers(authoritys));
             res.send();
         }
+        requesting_count -= 1;
     });
 });
 
@@ -552,7 +555,7 @@ process.on('SIGINT', function () {
 });
 
 web.get("/", (req, res) => {
-    status = util.format("request_count:\t%d\nsuccess_count:\t%d\nfailed_count\t%d\nnotfound_count:\t%d\nin_quest_google:\t%d\nin_quest_udp:\t%d\nupdate_queue_size:\t%d\n", request_count, success_count, failed_count, notfound_count, in_quest_google, in_quest_udp, update_queue.length);
+    status = util.format("rquesting_count:\t%d\nrequest_count:\t%d\nsuccess_count:\t%d\nfailed_count\t%d\nnotfound_count:\t%d\nin_quest_google:\t%d\nin_quest_udp:\t%d\nupdate_queue_size:\t%d\n",requesting_count, request_count, success_count, failed_count, notfound_count, in_quest_google, in_quest_udp, update_queue.length);
     res.send(status);
 });
 
