@@ -23,7 +23,7 @@ const NOTFOUND = 3;
 // global varibales
 let cache = {};
 let hosts = {};
-let chain_domain_list = {};
+let china_domain_list = {};
 let update_queue = [];
 let dummping_cache = false;
 let dummping_status = false;
@@ -75,7 +75,7 @@ function dump_domain_list(callback) {
     dummping_list = true;
 
     let lists = {
-        "chain_domain_list": chain_domain_list
+        "china_domain_list": china_domain_list
     };
     fs.writeFile("domain_list.txt", JSON.stringify(lists), err => {
         if (err) console.err(err);
@@ -89,7 +89,7 @@ function load_domain_list() {
     try {
         txt = fs.readFileSync("domain_list.txt");
         domain_list = JSON.parse(txt);
-        chain_domain_list = domain_list["chain_domain_list"] || {};
+        china_domain_list = domain_list["china_domain_list"] || {};
         console.log("domain_list.txt loaded.");
     } catch (error) {
         console.error("Failed loading domain_list.txt");
@@ -132,7 +132,7 @@ function is_ipv4(ip) {
     return /^\d*.\d*.\d*.\d*$/.test(ip);
 }
 
-function is_chain_ip(ip) {
+function is_china_ip(ip) {
     let res = geoip.lookup(ip);
     return res && res.country == "CN";
 }
@@ -354,18 +354,22 @@ function quest_google(que, callback) {
             if (callback) callback(ret["Status"], [], []);
             return;
         }
-        if (callback) callback(NOERROR, answers, authoritys);
+        if (callback) callback(NOERROR, answers, authoritys);   
     });
 }
 
-function blocked(que, ans, sure) {
-    // if sure is false, we can infer by the ans length
-    if (!sure && (!ans || ans.length == 0)) {
-        return !chain_domain_list[que.name];
-    }
+function blocked(que, ans, auth, sure) {
+    ans = ans || [];
+    auth = auth || [];
+    anss = ans.concat(auth);
 
-    if (ans.length > 0 && (ans[0].type == 1 || ans[0].type == 28) && !is_chain_ip(ans[0].data)) {
-        return true;
+    // if sure is false, we can infer by the ans length
+    if (!sure && ans.length == 0) return !china_domain_list[que.name];;
+
+    for (let x of anss) {
+        if ((x.type == 1 || x.type == 28) && !is_china_ip(x.data)) {
+            return true;
+        }
     }
 
     return false;
@@ -373,7 +377,9 @@ function blocked(que, ans, sure) {
 
 function quest_net(x, callback) {
     function quest_cb(err_code, ans, auth) {
-        update_cache(x, { "Answer": ans, "Authority": auth });
+        if (!err_code) {
+            update_cache(x, { "Answer": ans, "Authority": auth });
+        }
         if (callback) callback(err_code, ans, auth);
     }
 
@@ -387,18 +393,18 @@ function quest_net(x, callback) {
     }
 
 
-    if (chain_domain_list[x.name] !== false || x.udp_first) {
+    if (china_domain_list[x.name] !== false || x.udp_first) {
         quest_udp_dns(x, (err_code, ans, auth) => {
-            if (err_code || blocked(x, ans)) { // maybe banned by gfw
+            if (err_code || blocked(x, ans, auth)) { // maybe banned by gfw
                 console.log("foreign: ", x);
                 quest_secondary();
                
-                if (x.type == 1 && blocked(x, ans, true)) {
-                    chain_domain_list[x.name] = false;
+                if (x.type == 1 && blocked(x, ans, auth, true)) {
+                    china_domain_list[x.name] = false;
                 }
                 return;
             } else {
-                if (x.type == 1) chain_domain_list[x.name] = true;
+                if (x.type == 1) china_domain_list[x.name] = true;
                 quest_cb(NOERROR, ans, auth);
             }
         });
