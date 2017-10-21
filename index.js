@@ -432,6 +432,8 @@ function quest(questions, callback) {
                 answers = answers.concat(ans);
                 authoritys = authoritys.concat(auth);
                 func(questions);
+            } else if (CONFIG.HOSTS_ONLY) {
+                func(questions);
             } else {
                 quest_cache(x, (ans, auth, hit) => {
                     if (hit) {

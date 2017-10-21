@@ -1,5 +1,8 @@
 module.exports = {
     IP: "0.0.0.0",
+
+    HOSTS_ONLY: false, // If it's true, freedns won't quest the upstream dns server.
+
     SECONDARY_UPSTREAM_TYPE: "udp",
     SECONDARY_UPSTREAM_SERVER: "8.8.8.8", // it only be used  when the SECONDARY_UPSTREAM_TYPE is "udp"
     EDNS_IP: "165.227.17.124",
