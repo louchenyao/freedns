@@ -1,7 +1,12 @@
 module.exports = {
     IP: "0.0.0.0",
 
-    HOSTS_ONLY: false, // If it's true, freedns won't quest the upstream dns server.
+    HOSTS_ONLY: process.env.HOSTS_ONLY == "true" || false, // If it's true, freedns won't quest the upstream dns server.
+    
+    // if REDIRECTED, then redirect all query to REDIRECT_TO.
+    // REDIRECT_TO is an IP
+    REDIRECTED: process.env.REDIRECTED == "true" || false,
+    REDIRECT_TO: process.env.REDIRECT_TO || "10.56.1.37",
 
     SECONDARY_UPSTREAM_TYPE: "udp",
     SECONDARY_UPSTREAM_SERVER: "8.8.8.8", // it only be used  when the SECONDARY_UPSTREAM_TYPE is "udp"

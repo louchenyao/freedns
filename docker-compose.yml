@@ -2,7 +2,11 @@ version: '2'
 services:
   freedns:
     build: .
+    restart: always
     ports:
       - "0.0.0.0:53:53/udp"
       - "127.0.0.1:5353:5353"
-    restart: always
+    environment:
+      - HOSTS_ONLY=false
+      - REDIRECTED=false
+      - REDIRECT_TO=10.56.1.37

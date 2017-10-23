@@ -182,7 +182,7 @@ function gen_answer_from_host(host) {
 function load_hosts() {
     let cnt = 0;
     try {
-        hosts_txt = fs.readFileSync("hosts").toString();
+        let hosts_txt = fs.readFileSync("hosts").toString();
         // console.log(hosts_txt);
         for (let host of hosts_txt.split("\n")) {
             host = escape_comment(host)
@@ -201,7 +201,7 @@ function load_hosts() {
         }
         console.log("Loaded " + cnt + " hosts.");
     } catch (error) {
-        console.log("Faild loading hosts.");
+        console.log("Failed loading hosts.");
         console.error(error);
     }
     // console.log(hosts);
@@ -424,41 +424,53 @@ function quest(questions, callback) {
             return;
         }
 
-        x = questions[0];
+        let x = questions[0];
         questions = questions.slice(1);
 
-        quest_hosts(x, (ans, auth, hit) => {
-            if (hit) {
-                answers = answers.concat(ans);
-                authoritys = authoritys.concat(auth);
-                func(questions);
-            } else if (CONFIG.HOSTS_ONLY) {
-                func(questions);
-            } else {
-                quest_cache(x, (ans, auth, hit) => {
-                    if (hit) {
-                        answers = answers.concat(ans);
-                        authoritys = authoritys.concat(auth);
-                        func(questions);
-                    } else {
-                        quest_net(x, (err_code, ans, auth) => {
-                            if (err_code) {
-                                callback(err_code, [], []);
-                                return;
-                            }
+        if (CONFIG.REDIRECTED) {
+            if (x.type == 1) {
+                answers.push({
+                    "name": x.name,
+                    "type": 1,
+                    "TTL": 600,
+                    "data": CONFIG.REDIRECT_TO
+                });
+            }
+            func(questions);
+        } else {
+            quest_hosts(x, (ans, auth, hit) => {
+                if (hit) {
+                    answers = answers.concat(ans);
+                    authoritys = authoritys.concat(auth);
+                    func(questions);
+                } else if (CONFIG.HOSTS_ONLY) {
+                    func(questions);
+                } else {
+                    quest_cache(x, (ans, auth, hit) => {
+                        if (hit) {
                             answers = answers.concat(ans);
                             authoritys = authoritys.concat(auth);
                             func(questions);
-                        });
-                    }
-                });
-            }
-        });
+                        } else {
+                            quest_net(x, (err_code, ans, auth) => {
+                                if (err_code) {
+                                    callback(err_code, [], []);
+                                    return;
+                                }
+                                answers = answers.concat(ans);
+                                authoritys = authoritys.concat(auth);
+                                func(questions);
+                            });
+                        }
+                    });
+                }
+            });
+        }
     })(questions);
 }
 
 function to_native_dns_answers(google_answers) {
-    // console.log("google_answers: " + JSON.stringify(google_answers));
+    //console.log("google_answers: " + JSON.stringify(google_answers));
     let ret = [];
     for (let x of google_answers) {
         //console.log(x);
