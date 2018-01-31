@@ -1,3 +1,7 @@
+**It's been deprecated! Recommend to use [freedns-go](https://github.com/Chenyao2333/freedns-go) instead.**
+
+**已经不建议使用这个库!**
+
 # free-dns
 
 A high-efficient-cache and anti-spoofing DNS Server.
